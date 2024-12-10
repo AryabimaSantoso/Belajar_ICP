@@ -102,4 +102,19 @@ export default Server(() => {
     }
     
     return app.listen();
+
+    app.get("/messages/search", (req, res) => {
+        const query = req.query.query?.toString().toLowerCase();
+        if (!query) {
+            res.status(400).send("Query parameter is required.");
+            return;
+        }
+    
+        const results = messagesStorage.values().filter(message =>
+            message.title.toLowerCase().includes(query) ||
+            message.body.toLowerCase().includes(query)
+        );
+    
+        res.json(results);
+    });
 });
