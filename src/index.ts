@@ -101,8 +101,6 @@ export default Server(() => {
         return new Date(timestamp.valueOf() / 1000_000);
     }
     
-    return app.listen();
-
     app.get("/messages/search", (req, res) => {
         const query = req.query.query?.toString().toLowerCase();
         if (!query) {
@@ -117,4 +115,7 @@ export default Server(() => {
     
         res.json(results);
     });
+    
+    return app.listen();
+
 });
