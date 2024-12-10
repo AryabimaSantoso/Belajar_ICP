@@ -21,101 +21,122 @@ import express from "express";
     This type represents a message that can be listed on a board.
 */
 export default Server(() => {
-
+    // Message class with helper methods
     class Message {
-    id: string;
-    title: string;
-    body: string;
-    attachmentURL: string;
-    createdAt: Date;
-    updatedAt: Date | null;
+      constructor(
+        public id: string,
+        public title: string,
+        public body: string,
+        public attachmentURL: string | null = null,
+        public createdAt: Date,
+        public updatedAt: Date | null = null
+      ) {}
+  
+      static create(data: Partial<Message>): Message {
+        if (!data.title || !data.body) {
+          throw new Error("Both 'title' and 'body' are required.");
+        }
+        return new Message(
+          uuidv4(),
+          data.title,
+          data.body,
+          data.attachmentURL || null,
+          getCurrentDate()
+        );
+      }
+  
+      update(data: Partial<Message>): Message {
+        if (data.title !== undefined) this.title = data.title;
+        if (data.body !== undefined) this.body = data.body;
+        if (data.attachmentURL !== undefined) this.attachmentURL = data.attachmentURL;
+        this.updatedAt = getCurrentDate();
+        return this;
+      }
     }
-
+  
     const messagesStorage = StableBTreeMap<string, Message>(0);
-
     const app = express();
     app.use(express.json());
-
-    app.post("/messages", (req, res) => {
-    const message: Message = {
-        id: uuidv4(),
-        createdAt: getCurrentDate(),
-        ...req.body,
+  
+    // Centralized error response
+    const sendError = (res: express.Response, message: string, status = 400) => {
+      res.status(status).json({ error: message });
     };
-    messagesStorage.insert(message.id, message);
-    res.json(message);
+  
+    // Routes
+    app.post("/messages", (req, res) => {
+      try {
+        const message = Message.create(req.body);
+        messagesStorage.insert(message.id, message);
+        res.json(message);
+      } catch (error: any) {
+        sendError(res, error.message);
+      }
     });
-
+  
     app.get("/messages", (req, res) => {
-    res.json(messagesStorage.values());
+      res.json(messagesStorage.values());
     });
-
+  
     app.get("/messages/:id", (req, res) => {
-    const messageId = req.params.id;
-    const messageOpt = messagesStorage.get(messageId);
-    if (!messageOpt) {
-        res.status(404).send(`the message with id=${messageId} not found`);
-    } else {
-        res.json(messageOpt);
-    }
+      const message = messagesStorage.get(req.params.id);
+      if (!message) {
+        sendError(res, `Message with id=${req.params.id} not found.`, 404);
+      } else {
+        res.json(message);
+      }
     });
-
+  
     app.put("/messages/:id", (req, res) => {
-    const messageId = req.params.id;
-    const messageOpt = messagesStorage.get(messageId);
-    if (!messageOpt) {
-        res
-        .status(400)
-        .send(
-            `couldn't update a message with id=${messageId}. message not found`
-        );
-    } else {
-        const message = messageOpt.Some;
-
-        const updatedMessage = {
-        ...message,
-        ...req.body,
-        updatedAt: getCurrentDate(),
-        };
-        messagesStorage.insert(message!.id, updatedMessage);
-        res.json(updatedMessage);
-    }
-    });
-
-    app.delete("/messages/:id", (req, res) => {
-    const messageId = req.params.id;
-    const deletedMessage = messagesStorage.remove(messageId);
-    if (!deletedMessage) {
-        res
-        .status(400)
-        .send(
-            `couldn't delete a message with id=${messageId}. message not found`
-        );
-    } else {
-        res.json(deletedMessage);
-    }
-    });
-
-    function getCurrentDate() {
-        const timestamp = new Number(ic.time());
-        return new Date(timestamp.valueOf() / 1000_000);
-    }
-    
-    app.get("/messages/search", (req, res) => {
-        const query = req.query.query?.toString().toLowerCase();
-        if (!query) {
-            res.status(400).send("Query parameter is required.");
-            return;
+        const messageOpt = messagesStorage.get(req.params.id);
+        
+        if (!messageOpt || !messageOpt.Some) {
+          sendError(res, `Message with id=${req.params.id} not found.`, 404);
+          return;
         }
-    
-        const results = messagesStorage.values().filter(message =>
-            message.title.toLowerCase().includes(query) ||
-            message.body.toLowerCase().includes(query)
-        );
-    
-        res.json(results);
+      
+        // Safely extract the message from the Option type (Some variant)
+        const message = messageOpt.Some;
+      
+        try {
+          const updatedMessage = message.update(req.body);
+          messagesStorage.insert(updatedMessage.id, updatedMessage);
+          res.json(updatedMessage);
+        } catch (error: any) {
+          sendError(res, error.message);
+        }
+      });
+  
+    app.delete("/messages/:id", (req, res) => {
+      const deletedMessage = messagesStorage.remove(req.params.id);
+      if (!deletedMessage) {
+        sendError(res, `Message with id=${req.params.id} not found.`, 404);
+      } else {
+        res.json(deletedMessage);
+      }
     });
-    
+  
+    app.get("/messages/search", (req, res) => {
+      const query = req.query.query?.toString().toLowerCase();
+      if (!query) {
+        sendError(res, "Query parameter is required.");
+        return;
+      }
+  
+      const results = messagesStorage.values().filter((message) =>
+        message.title.toLowerCase().includes(query) ||
+        message.body.toLowerCase().includes(query)
+      );
+  
+      res.json(results);
+    });
+  
+    // Utility function to get the current date
+    function getCurrentDate(): Date {
+      const timestamp = Number(ic.time());
+      return new Date(Math.floor(timestamp / 1_000_000));
+    }
+  
     return app.listen();
-
-});
+  });
+  
